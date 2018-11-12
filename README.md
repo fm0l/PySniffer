@@ -1,4 +1,4 @@
-# pySniffer
+# PySniffer
 A Python-based packet sniffer for Linux
 
 ## HOW-TO
