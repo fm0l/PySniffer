@@ -1,0 +1,145 @@
+#!/usr/bin/env python
+# A simple Python Sniffer to mimic TCPDUMP for Sysadmins
+#
+import socket
+import sys
+import getopt
+from struct import unpack
+
+banner='''###############
+PySniffer v1.0#
+###############'''
+print(banner)
+print
+
+
+def helper() :
+    print ''' HOW TO USE
+./pySniffer -s FROM_IP -p FROM_IP -D DEST_IP -P DEST_PORT
+
+for example
+
+./pySniffer -D 192.168.0.2 -P 443
+
+will get traffic from any SOURCE to 192.168.0.2:443
+
+If you want to catch everything use -a
+
+If you want to filter a SUBNET instead of a single IP, please use GREP utils
+This will be added in future releases
+
+./PySniffer -a | grep "127.0.0.[0-255]" -A3
+
+Try to be more specific
+
+./PySniffer -p 8080 | grep "127.0.0.[0-255]" -A3'''
+
+
+
+def main(argv) :
+    filterSource = ''
+    filterSport = ''
+    filterDest = ''
+    filterDport = ''
+    filterAll = ''
+    filterList = []
+    if "-a" in argv :
+        filterAll = 'ALL'
+    else :
+        try:
+            opts, args = getopt.getopt(argv,"s:p:D:P:h:a:",[])
+        except getopt.GetoptError:
+            helper()
+            sys.exit()
+        for opt, arg in opts:
+          if opt == '-h':
+             helper()
+             sys.exit()
+          elif opt in ("-s"):
+             filterSource = arg
+          elif opt in ("-p"):
+              filterSport = arg
+          elif opt in ("-D"):
+              filterDest = arg
+          elif opt in ("-P"):
+              filterDport = arg
+          elif opt in ("-a"):
+              filterAll = 'ALL'
+          filterList = [filterSource, filterSport, filterDest, filterDport]
+    try:
+        s = socket.socket( socket.PF_PACKET , socket.SOCK_RAW , socket.ntohs(0x0003))
+        while True:
+            packet = s.recvfrom(65565)
+            packet = packet[0]
+            eth_length = 14
+            eth_header = packet[:eth_length]
+            eth = unpack('!6s6sH' , eth_header)
+            eth_protocol = socket.ntohs(eth[2])
+    
+            if eth_protocol == 8 :
+                ip_header = packet[eth_length:20+eth_length]
+                iph = unpack('!BBHHHBBH4s4s' , ip_header)
+                version_ihl = iph[0]
+                iph_length = version_ihl & 0xF
+                iph_length = iph_length * 4
+                protocol = iph[6]
+                s_addr = socket.inet_ntoa(iph[8]);
+                d_addr = socket.inet_ntoa(iph[9]);
+    
+                if protocol == 6 :
+                    tcp_header = packet[34:54]
+                    tcph = unpack('!HHLLBBHHH' , tcp_header)
+                    source_port = tcph[0]
+                    dest_port = tcph[1]
+                    sequence = tcph[2]
+                    acknowledgement = tcph[3]
+                    doff_reserved = tcph[4]
+                    tcph_length = doff_reserved >> 4
+                    tcph_length = tcph_length * 4
+                    h_size = eth_length + iph_length + tcph_length
+                    data = packet[h_size:]
+    
+                    if int(str(acknowledgement)) == 0:
+                        acknowledgement = "SYN ACK NOT RECEIVED"
+                    
+                    varPrint = 0
+                    filterPacket = []
+                    ifFilter = []
+                    if len(filterList) >= 1 :
+                        for op in filterList :
+                            if op == '' :
+                                pass
+                            else :
+                                filterPacket.append(op)
+                        if str(s_addr) == str(filterSource):
+                            varPrint += 1
+                        if str(source_port) == str(filterSport) :
+                            varPrint += 1
+                        if str(d_addr) == str(filterDest) :
+                            varPrint += 1
+                        if str(dest_port) == str(filterDport) : 
+                            varPrint += 1
+                        if varPrint == len(filterPacket) :
+                            print('FROM: ' +str(s_addr) + '/' +str(source_port) + ' DEST: ' +str(d_addr) + '/' +str(dest_port))
+                            print('ACK : ' + str(acknowledgement))
+                            print
+                    else:
+                            print('FROM: ' +str(s_addr) + '/' +str(source_port) + ' DEST: ' +str(d_addr) + '/' +str(dest_port))
+                            print('ACK : ' + str(acknowledgement))
+                            print
+                    sys.stdout.flush()
+    
+    except socket.error , msg:
+        print 'Socket creation error: %s' %msg[1]
+        sys.exit()
+    
+    except KeyboardInterrupt:
+        print "Sniffer interrupted "
+        sys.exit()
+        
+if __name__ == '__main__':
+   main(sys.argv[1:])
+
+
+
+
